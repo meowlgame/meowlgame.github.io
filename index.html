@@ -12122,11 +12122,26 @@ const os = window.stopCatRace; window.stopCatRace = function () { if (window.Cat
 })();
 
 </script>
+<style>
+#cx-gear { background: #7f5e39; color: #fff; border: 3px solid #b38959; width: 32px; height: 32px; cursor: pointer; font-size: 14px; line-height: 1; }
+#cx-view { display: none; flex: 1; overflow-y: auto; padding: 12px; flex-direction: column; gap: 10px; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+#cx-panel.view-on #cx-view { display: flex; }
+#cx-panel.view-on #cx-msgs, #cx-panel.view-on #cx-foot { display: none; }
+#cx-view h3 { margin: 6px 0 0; font-size: 14px; color: #55ff55; }
+#cx-view p { margin: 0; font-size: 13px; line-height: 1.5; color: #ddd; }
+#cx-view .cx-card { background: #2a211a; border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+#cx-view .cx-lbl { font-size: 11px; color: #aaa; text-transform: uppercase; letter-spacing: .5px; }
+#cx-view .cx-val { font-size: 15px; word-break: break-all; }
+.cx-btn.red { background: #8a2222; border-color: #cc5555; border-bottom-color: #551111; border-right-color: #551111; }
+.cx-warn { background: #4a3b00; border: 2px solid #ffaa00; color: #ffdd88; padding: 8px; font-size: 13px; border-radius: 6px; line-height: 1.4; }
+#cx-panel input[type=checkbox] { flex: none; width: 20px; height: 20px; padding: 0; margin-top: 2px; }
+</style>
 <button id="cx-toggle" aria-label="Open chat">💬<span id="cx-dot"></span></button>
 <aside id="cx-panel" aria-label="Chat">
-  <div id="cx-head"><span class="cx-title">💬 CHAT</span><button id="cx-close" aria-label="Close chat">✕</button></div>
+  <div id="cx-head"><span class="cx-title">💬 CHAT</span><button id="cx-gear" aria-label="Settings">⚙️</button><button id="cx-close" aria-label="Close chat">✕</button></div>
   <div id="cx-msgs"></div>
   <div id="cx-foot"></div>
+  <div id="cx-view"></div>
 </aside>
 
 <script>
@@ -12206,26 +12221,43 @@ const FIREBASE_CONFIG = {
   function setFoot(...nodes) { foot.textContent = ''; nodes.forEach(n => foot.appendChild(n)); }
   function textNode(t, cls) { const d = document.createElement('div'); d.className = cls; d.textContent = t; return d; }
 
+  function aLink(text, fn) { const a = document.createElement('a'); a.textContent = text; a.onclick = fn; return a; }
   function footLoggedOut() {
+    const cb = document.createElement('input'); cb.type = 'checkbox';
+    const lab = document.createElement('label'); lab.className = 'cx-small'; lab.style.cssText = 'align-items:flex-start;justify-content:flex-start;cursor:pointer';
+    const sp = document.createElement('span');
+    sp.append('I am 15 or older (or have a parent’s permission) and I agree to the ', aLink('Terms of Use', e => { e.preventDefault(); openView('terms'); }), ' and ', aLink('Privacy Policy', e => { e.preventDefault(); openView('privacy'); }), '.');
+    lab.append(cb, sp);
+    const err = textNode('', 'cx-err');
     const b = btn('SIGN IN WITH GOOGLE', 'go', async () => {
+      if (!cb.checked) return;
       const prov = new firebase.auth.GoogleAuthProvider();
       try { await auth.signInWithPopup(prov); }
       catch (e) {
         if (e && (e.code === 'auth/popup-blocked' || e.code === 'auth/operation-not-supported-in-this-environment')) auth.signInWithRedirect(prov);
-        else if (e && e.code !== 'auth/popup-closed-by-user' && e.code !== 'auth/cancelled-popup-request') err.textContent = 'Sign-in failed. Try again.';
+        else if (e && e.code !== 'auth/popup-closed-by-user' && e.code !== 'auth/cancelled-popup-request') err.textContent = 'Sign-in failed (' + (e && e.code || 'unknown') + ')';
       }
     });
-    const err = textNode('', 'cx-err');
-    setFoot(textNode('Sign in to chat — it also saves your game progress to your account.', 'cx-small'), b, err);
+    b.disabled = true; cb.onchange = () => { b.disabled = !cb.checked; };
+    setFoot(textNode('Sign in to chat — it also saves your game progress to your account.', 'cx-small'), lab, b, err);
   }
-  function footUsername() {
-    const inp = document.createElement('input'); inp.placeholder = 'Pick a username'; inp.maxLength = 16; inp.autocomplete = 'off';
-    const err = textNode('', 'cx-err');
-    const go = async () => {
-      const name = inp.value.trim();
-      if (!/^[A-Za-z0-9_]{3,16}$/.test(name)) { err.textContent = '3–16 characters: letters, numbers, _'; return; }
-      if (nameIsBad(name)) { err.textContent = 'That username isn’t allowed.'; return; }
-      ok.disabled = true; err.textContent = '';
+  function checkName(name) {
+    if (!/^[A-Za-z0-9_]{3,16}$/.test(name)) return '3–16 characters: letters, numbers, _';
+    if (nameIsBad(name)) return 'That username isn’t allowed.';
+    return '';
+  }
+  function footUsername(msg) {
+    const warn = textNode('👤 STEP 1: Choose your username. This is NOT a chat message — nothing is sent yet.', 'cx-warn');
+    const inp = document.createElement('input'); inp.placeholder = 'Your username (e.g. CoolCat)'; inp.maxLength = 16; inp.autocomplete = 'off';
+    const err = textNode(msg || '', 'cx-err');
+    const go = () => { const name = inp.value.trim(); const e = checkName(name); if (e) { err.textContent = e; return; } footConfirm(name); };
+    inp.onkeydown = e => { if (e.key === 'Enter') go(); };
+    const row = document.createElement('div'); row.className = 'cx-row'; row.append(inp, btn('NEXT', 'go', go));
+    setFoot(warn, row, err, textNode('Public name shown next to your messages. You can change it later in ⚙️ Settings.', 'cx-small'));
+  }
+  function footConfirm(name) {
+    const row = document.createElement('div'); row.className = 'cx-row';
+    row.append(btn('YES, USE IT', 'go', async () => {
       try {
         await db.runTransaction(async tx => {
           const ref = db.doc('usernames/' + name.toLowerCase());
@@ -12234,12 +12266,9 @@ const FIREBASE_CONFIG = {
           tx.set(db.doc('users/' + me.uid), { username: name, created: firebase.firestore.FieldValue.serverTimestamp() });
         });
         username = name; footReady();
-      } catch (e) { err.textContent = e.message === 'taken' ? 'Username already taken.' : 'Could not save username.'; ok.disabled = false; }
-    };
-    const ok = btn('OK', 'go', go);
-    inp.onkeydown = e => { if (e.key === 'Enter') go(); };
-    const row = document.createElement('div'); row.className = 'cx-row'; row.append(inp, ok);
-    setFoot(textNode('Welcome! Choose your username (permanent).', 'cx-small'), row, err);
+      } catch (e) { footUsername(e.message === 'taken' ? 'Username already taken.' : 'Could not save username.'); }
+    }), btn('BACK', '', () => footUsername()));
+    setFoot(textNode('Use “' + name + '” as your public username?', 'cx-warn'), row);
   }
   function footReady() {
     const inp = document.createElement('input'); inp.placeholder = 'Say something…'; inp.maxLength = 200; inp.autocomplete = 'off';
@@ -12300,6 +12329,106 @@ const FIREBASE_CONFIG = {
     location.reload();
   }
 
+  /* ---------- settings + legal ---------- */
+  const SITE_OWNER = 'the owner of this website';
+  const CONTACT_EMAIL = 'PASTE_CONTACT_EMAIL';
+  const contact = CONTACT_EMAIL.indexOf('PASTE') === 0 ? 'Use the contact details given on this website.' : 'Email: ' + CONTACT_EMAIL;
+  const TERMS = [
+    ['1. Using the chat', 'This chat and these games are provided by ' + SITE_OWNER + ' (“we”). By signing in or sending a message you agree to these Terms. If you don’t agree, please don’t use the chat. You must be at least 15 years old, or have permission from a parent or guardian.'],
+    ['2. Rules', 'Be kind. Do not post insults, harassment, hate speech, sexual or violent content, threats, spam, advertising, links to harmful sites, or anyone’s private information (including your own: no phone numbers, addresses or passwords). Do not impersonate others, break the law, or try to hack, overload or bypass the site or the word filter.'],
+    ['3. Your messages are public', 'Everything you send in the chat, with your username and the time, is visible to everyone who visits the site. You are responsible for what you write. You allow us to store and display your messages to run the chat.'],
+    ['4. Moderation', 'The word filter is automatic and not perfect. We may delete messages, change or remove usernames, or block accounts at any time, with or without notice, if we think the rules are broken or to keep the site safe.'],
+    ['5. Accounts and game saves', 'You sign in with Google. Your game progress is saved to your account on a best-effort basis and can be lost or corrupted. This is a free hobby site. You can delete your account at any time in ⚙️ Settings.'],
+    ['6. No warranty', 'The site, games and chat are provided “as is” and “as available”, with no promise that they will be error-free, always online, or suitable for any particular purpose.'],
+    ['7. Limit of liability', 'To the maximum extent allowed by law, we are not liable for indirect or consequential losses, lost game progress, or messages written by users. Nothing in these Terms limits any right or liability that cannot be limited by law (for example consumer rights).'],
+    ['8. Changes', 'We may update these Terms, change the chat, or shut it down at any time. Continuing to use the chat after a change means you accept it.'],
+    ['9. Contact', contact]
+  ];
+  const PRIVACY = [
+    ['Who we are', 'This site is run by ' + SITE_OWNER + ', who decides how your data is used. ' + contact],
+    ['What we collect', 'When you sign in with Google: your email address and a unique account ID (we do not see your Google password). When you use the chat: your chosen username, your messages and their time. When you play: your game progress (saved data). Our hosting and Google/Firebase may also process technical data such as your IP address in their logs.'],
+    ['Why we use it', 'To let you log in, run the chat, show your messages, and save your game progress across devices. We do this to provide the service you asked for, and with your consent when you tick the box before signing in.'],
+    ['Who can see it', 'Your username and messages are PUBLIC to all visitors. Your email is never shown to other users. Your game saves are only readable by your account. We do not sell your data and we do not run ads.'],
+    ['Service providers', 'Google (Firebase Authentication and Firestore database) stores account, chat and save data and may process it outside your country, under Google’s own safeguards. The website files are hosted on GitHub Pages.'],
+    ['How long we keep it', 'Until you delete your account in ⚙️ Settings, or until we remove it. Deleting your account removes your username, your messages and your saved progress from our database. Backups and provider logs may keep traces for a short time.'],
+    ['Your rights', 'You can see your email and username in ⚙️ Settings, change your username there, and delete your account and data. Depending on where you live (for example in the EU/France under the GDPR) you can also ask us for a copy of your data, ask for corrections, object to processing, or complain to your data protection authority (in France, the CNIL).'],
+    ['Browser storage', 'The site stores your game progress and settings in your browser (localStorage) and Google keeps you signed in using similar technology. These are needed for the games and login to work. We do not use advertising or tracking cookies.'],
+    ['Children', 'The chat is not meant for children under 15 without a parent’s permission. If you think a child has signed up without permission, contact us and we will delete the account.'],
+    ['Changes', 'We may update this policy; the latest version is always in this panel.']
+  ];
+  let viewName = null;
+  function closeView() { viewName = null; panel.classList.remove('view-on'); }
+  function openView(name) {
+    viewName = name; panel.classList.add('view-on');
+    const v = $('cx-view'); v.textContent = ''; v.scrollTop = 0;
+    const back = btn('← BACK', '', closeView);
+    const h = (t) => { const e = document.createElement('h3'); e.textContent = t; return e; };
+    const para = (t) => { const e = document.createElement('p'); e.textContent = t; return e; };
+    if (name === 'terms' || name === 'privacy') {
+      const arr = name === 'terms' ? TERMS : PRIVACY;
+      v.append(back, h(name === 'terms' ? 'Terms of Use' : 'Privacy Policy'), para('Last updated: 8 November 2026'));
+      arr.forEach(x => v.append(h(x[0]), para(x[1])));
+      return;
+    }
+    v.append(back, h('⚙️ Settings'));
+    if (me && username) {
+      const card = document.createElement('div'); card.className = 'cx-card';
+      const l1 = textNode('Google account (email)', 'cx-lbl'), v1 = textNode(me.email || '(none)', 'cx-val');
+      const l2 = textNode('Username', 'cx-lbl'), v2 = textNode(username, 'cx-val');
+      const inp = document.createElement('input'); inp.placeholder = 'New username'; inp.maxLength = 16; inp.autocomplete = 'off';
+      const err = textNode('', 'cx-err');
+      const chg = btn('CHANGE', 'go', async () => {
+        const n = inp.value.trim(); const e = checkName(n); if (e) { err.textContent = e; return; }
+        if (n === username) { err.textContent = 'That’s already your username.'; return; }
+        chg.disabled = true; err.textContent = '';
+        const oldL = username.toLowerCase(), newL = n.toLowerCase();
+        try {
+          await db.runTransaction(async tx => {
+            if (newL !== oldL) {
+              const nr = db.doc('usernames/' + newL);
+              if ((await tx.get(nr)).exists) throw new Error('taken');
+              tx.set(nr, { uid: me.uid }); tx.delete(db.doc('usernames/' + oldL));
+            }
+            tx.update(db.doc('users/' + me.uid), { username: n });
+          });
+          username = n; footReady(); openView('settings');
+        } catch (x) { err.textContent = x.message === 'taken' ? 'Username already taken.' : 'Could not change username.'; chg.disabled = false; }
+      });
+      const row = document.createElement('div'); row.className = 'cx-row'; row.append(inp, chg);
+      card.append(l1, v1, l2, v2, row, err, textNode('Old messages keep the name they were sent with.', 'cx-small'));
+      const pw = document.createElement('div'); pw.className = 'cx-card';
+      const pb = btn('GOOGLE ACCOUNT SECURITY', '', () => window.open('https://myaccount.google.com/security', '_blank', 'noopener'));
+      pw.append(textNode('Password', 'cx-lbl'), para('You sign in with Google, so your password is managed by Google, not by this site. Change it in your Google account:'), pb);
+      const dz = document.createElement('div'); dz.className = 'cx-card';
+      const derr = textNode('', 'cx-err');
+      dz.append(textNode('Delete account', 'cx-lbl'), para('Removes your username, your messages and your saved game progress from our servers. This cannot be undone.'), btn('DELETE MY ACCOUNT & DATA', 'red', () => deleteAccount(derr)), derr);
+      v.append(card, pw, dz);
+    } else {
+      v.append(para(me ? 'Choose a username in the chat first.' : 'Sign in to see your account settings.'));
+    }
+    const lg = document.createElement('div'); lg.className = 'cx-card';
+    lg.append(textNode('Legal', 'cx-lbl'), btn('TERMS OF USE', '', () => openView('terms')), btn('PRIVACY POLICY', '', () => openView('privacy')));
+    v.append(lg);
+  }
+  async function deleteAccount(errEl) {
+    if (!confirm('Delete your account, your messages and your saved game progress from our servers? This cannot be undone.')) return;
+    errEl.textContent = '';
+    try {
+      await me.reauthenticateWithPopup(new firebase.auth.GoogleAuthProvider());
+      syncReady = false; clearTimeout(timer);
+      const uid = me.uid, l = username ? username.toLowerCase() : null;
+      const qs = await db.collection('messages').where('uid', '==', uid).get();
+      for (let i = 0; i < qs.docs.length; i += 400) { const b = db.batch(); qs.docs.slice(i, i + 400).forEach(d => b.delete(d.ref)); await b.commit(); }
+      await db.doc('saves/' + uid).delete().catch(() => {});
+      if (l) await db.doc('usernames/' + l).delete();
+      await db.doc('users/' + uid).delete();
+      await me.delete();
+      sessionStorage.removeItem('chat.pulled');
+      location.reload();
+    } catch (e) { errEl.textContent = 'Could not delete (' + (e && e.code || 'error') + '). Try again.'; }
+  }
+  $('cx-gear').onclick = () => { if (viewName) closeView(); else openView('settings'); };
+
   /* ---------- boot ---------- */
   const load = src => new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
   async function boot() {
@@ -12325,11 +12454,12 @@ const FIREBASE_CONFIG = {
     }, () => note('Couldn’t load messages.'));
     auth.onAuthStateChanged(async u => {
       me = u; username = null;
-      if (!u) { syncReady = false; footLoggedOut(); renderMsgs(); return; }
+      if (!u) { syncReady = false; footLoggedOut(); renderMsgs(); if (viewName === 'settings') openView('settings'); return; }
       setFoot(textNode('Loading your account…', 'cx-small'));
       try { const p = await db.doc('users/' + u.uid).get(); username = p.exists ? p.data().username : null; } catch (e) {}
       if (username) footReady(); else footUsername();
       renderMsgs();
+      if (viewName === 'settings') openView('settings');
       pull();
     });
   }
